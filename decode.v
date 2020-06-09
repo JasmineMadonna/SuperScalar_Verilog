@@ -1,0 +1,238 @@
+//Regsiter file contains 32 registers of 16 bit wide
+//`include "mux.v"
+
+module RegisterFile(read, readData1, readData2, readData3, readData4, regRead, regWrite, readAddr1, readAddr2, readAddr3, readAddr4, writeAddr1, writeAddr2, writeData1, writeData2, hlt, clk, busy1, busy2, tag1, tag2, destBT1, destBT2);
+	parameter DATA_WIDTH = 16;
+	parameter ARF_WIDTH = DATA_WIDTH + 5; // 4 bits for tag 1 busy bit 15-0 data, 16 - busy, 21-17 tag
+	
+	input regRead, clk, hlt, busy1, busy2;
+	input [1:0] regWrite;
+	input[4 : 0] readAddr1, readAddr2, readAddr3, readAddr4, writeAddr1, writeAddr2, destBT1, destBT2;
+	input [3:0] tag1, tag2;
+	input[DATA_WIDTH - 1:0] writeData1, writeData2;
+	output reg [ARF_WIDTH - 1 : 0] readData1, readData2, readData3, readData4;
+	output reg read;
+	initial
+		read = 0;
+	
+	reg[ARF_WIDTH - 1:0] registers[0:31];
+	//reg[ARF_WIDTH - 1:0] tempData1, tempData2, tempData3, tempData4;
+
+	//always@(regRead or readAddr1 or readAddr2 or readAddr3 or readAddr4 or clk)
+	always@(clk)
+	begin
+		if(regRead && ~clk)
+		begin
+			//$display($time, "  readData1 = %d", registers[readAddr1]);
+			readData1 = registers[readAddr1];
+			readData2 = registers[readAddr2];
+			registers[destBT1][20:16] = {tag1, busy1};
+			readData3 = registers[readAddr3];
+			readData4 = registers[readAddr4];
+			registers[destBT2][20:16] = {tag2, busy2};
+			read = ~read;
+		end
+	end
+	
+	always@(clk)
+	begin
+		if(regWrite[0] && clk)
+		begin
+			registers[writeAddr1][15:0] <= writeData1;
+			//$display($time, "********************  writeData1 = %d,  writeAddr1 = %d", writeData1, writeAddr1);
+			//$display($time, "********************  reg data = %d", registers[writeAddr1][15:0]);
+		end
+	end
+	
+	always@(regWrite[1] or writeData2 or writeAddr2 or clk)
+	begin
+		if(regWrite[1] && clk)
+			registers[writeAddr2][15:0] <= writeData2;
+	end
+
+	//always@(registers[5])
+	//	$display($time, "  reg 5 = %d", registers[5]);
+
+	/*always@(busy2 or destBT2)
+		registers[destBT2][16] = busy2;
+
+	always@(tag1)
+		registers[destBT1][20:17] = tag1;
+
+	always@(tag2)
+		registers[destBT2][20:17] = tag2;*/
+
+	initial
+	begin
+		registers[0] = 21'b000000000000000000000;
+		$readmemh("loadReg1.dat", registers);
+	end
+
+	integer i;
+	initial
+	begin
+		for(i=0; i<14; i=i+1)
+			$display($time, "  reg %d = %d", i, registers[i][15:0]);
+		#200 for(i=1; i<12; i=i+1)
+			$display($time, "  reg %d = %d", i, registers[i][15:0]);
+	end
+
+	always@(registers[7])
+		$display($time, "  reg 7 = %d", registers[7][15:0]);
+
+	always@(registers[11])
+		$display($time, "  reg 11 = %d", registers[11][15:0]);
+
+	always@(registers[8])
+		$display($time, "  reg 8 = %d", registers[8][15:0]);
+
+	always@(registers[5])
+		$display($time, "  reg 5 = %d", registers[5][15:0]);
+
+	always@(registers[2])
+		$display($time, "  reg 2 = %d", registers[2][15:0]);
+
+	
+	/*always@(hlt)
+	begin
+		if(hlt)
+		begin
+		for(i=1; i<14; i=i+1)
+			$display($time, "  reg %d = %d", i, registers[i]);
+		end
+	end*/
+endmodule
+
+module decode(rs1, rt1, rd1, rs2, rt2, rd2, immediate1, immediate2, ctrl1, ctrl2, func1, func2, spec1, spec2, instr1, instr2);
+	input [31:0] instr1, instr2;
+	
+	//output reg [15:0] readData1Out, readData2Out, readData3Out, readData4Out;
+	output [4:0] rs1, rt1, rs2, rt2, rd1, rd2;
+	output [5:0] ctrl1, ctrl2;// ctrl in order sw, lw, r, branch, jmp, hlt ie ctrl[5] = sw and so on
+	output [2:0] func1, func2;
+	output [15:0] immediate1, immediate2;
+	output reg spec1, spec2;
+	
+	wire [5:0] opcode1, opcode2;
+	wire [15:0] immediate1, immediate2;
+	//wire [4:0] rs1, rt1, rs2, rt2;
+
+	assign opcode1 = instr1[31:26];
+	assign immediate1 = instr1[15:0];
+	assign rs1 = instr1[25:21];
+	assign rt1 = instr1[20:16];
+	assign rd1 = instr1[15:11];
+	
+	assign opcode2 = instr2[31:26];
+	assign immediate2 = instr2[15:0];
+	assign rs2 = instr2[25:21];
+	assign rt2 = instr2[20:16];
+	assign rd2 = instr2[15:11];
+
+	ControlUnit CU1(ctrl1[5], ctrl1[4], ctrl1[3], ctrl1[2], ctrl1[1], ctrl1[0], func1, opcode1, instr1[5:0]);
+	ControlUnit CU2(ctrl2[5], ctrl2[4], ctrl2[3], ctrl2[2], ctrl2[1], ctrl2[0], func2, opcode2, instr2[5:0]);
+
+	reg speculative;
+	initial
+	begin
+		speculative = 0;
+		spec1 = 0;
+		spec2 = 0;
+	end
+	always@(ctrl1 or ctrl2)
+	begin
+		if(speculative == 0)
+		begin
+			if(ctrl1[2])
+			begin
+				spec1 = 0;
+				spec2 = 1;
+				speculative = 1;
+			end
+			else if(ctrl2[2])
+			begin
+				speculative = 1;
+				spec1 = 0;
+				spec2 = 0;
+			end
+			else 
+				speculative = 0;
+		end
+		else
+		begin
+			spec1 = 1;
+			spec2 = 1;
+		end
+	end
+endmodule
+
+/*in both regData and robData 16 is busy or valid bit
+*/
+module SourceRead(srcData, srcTag, regData, robData, robTag, W);
+	input [16:0] regData, robData;
+	input [3:0] robTag; //this width is subject to change 
+	output reg [15:0] srcData;
+	output reg [3:0] srcTag; //this width is subject to change 
+	input W;
+
+	always@(W)
+	begin
+		#1 if(regData[16]) //busy bit check
+		begin
+			//$display($time, " -----------------------------robData = %b robTag = %b, robdata[16] = %b", robData, robTag, robData[16]);
+			if(robData[16]) //check for valid rob data
+			begin
+				srcData = robData[15:0];
+				srcTag = 4'b0;
+			end
+			else
+			begin
+				srcTag = robTag; // reservation station tag is set to the robbtag1 if not valid
+				//$display($time, " -----------------------------------robTag = %d src tag = %d", robTag, srcTag);
+			end
+		end
+		else
+		begin
+			srcData <= regData[15:0]; 	
+			srcTag = 4'b0;
+		end
+	end
+endmodule
+
+/*module DestAllocate(destReg, regWbData, strIndex, type, data);
+	input [1:0] type;
+	input [20:0] data;
+	output reg [15:0] regWbData;	
+	output reg [2:0] strIndex;
+	output reg [4:0] destReg;
+	always@(type or wbData1)
+	begin
+		if(type == 2'b00)
+		begin
+			destReg = data[4:0];
+			regWbData = data[20:5];
+			//regWrite[0] = 1'b1;
+		end
+		else if(type == 2'b01)
+		begin
+			//regWrite[0] = 1'b0;
+			strIndex = wbData1[2:0];
+		end
+	end
+endmodule*/
+
+module FindType(type, ctrl);
+	input [5:0] ctrl;
+	output reg [1:0] type;
+	always@(ctrl)
+	begin
+		if(ctrl[3] || ctrl[4])
+			type = 2'b00;
+		else if(ctrl[5])
+			type = 2'b01;
+		else if(ctrl[2])
+			type = 2'b10;
+		else if(ctrl[1])
+			type = 2'b11;
+	end
+endmodule

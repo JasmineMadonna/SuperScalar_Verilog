@@ -1,0 +1,80 @@
+/*module mem(readData, aluOut, regDstOut, aluRes, writeData, memRead, memWrite, regDstIn, hlt);
+	parameter DATA_WIDTH = 16;
+	input [DATA_WIDTH-1:0] aluRes, writeData;
+	input memRead, memWrite, hlt;
+	input [4:0] regDstIn;
+
+	output [DATA_WIDTH-1:0] readData, aluOut;
+	output [4:0] regDstOut;
+
+	DataMemory dm(readData, aluRes, memRead, memWrite, writeData, hlt);
+	assign aluOut = aluRes;
+	assign regDstOut = regDstIn;
+endmodule*/
+
+module DataMemory(readData, readAddr, memRead, memWrite, writeData1, writeData2, writeAddr1, writeAddr2, hlt);
+	
+	parameter DATA_WIDTH = 16;
+	parameter MEM_SIZE = 1024; // eqiuvalent to 2^10; 
+	
+	input memRead, hlt;
+	input [1:0] memWrite;
+	input [DATA_WIDTH-1 : 0] writeData1, writeData2;
+	input [15:0] readAddr, writeAddr1, writeAddr2;
+	output reg [DATA_WIDTH-1 : 0] readData;
+
+	reg[15:0] memory[0 : MEM_SIZE-1];
+
+	always@(memRead or readAddr)
+	begin
+		#1 if(memRead)
+		begin
+			readData <= memory[readAddr]; 
+			$display("	read addr = %d", readAddr);
+		end
+	end
+
+	always@(writeAddr1 or writeData1)
+	begin
+		#1 if(memWrite[0])
+		begin
+			$display($time, "  memWrite = %b, writeData = %d, addr = %d", memWrite[0], writeData1, writeAddr1);
+			memory[writeAddr1] <= writeData1;
+		end
+	end
+
+	always@(writeAddr2 or writeData2)
+	begin
+		#1 if(memWrite[1])
+		begin
+			$display($time, "  memWrite = %b, writeData = %d, addr = %d", memWrite[1], writeData2, writeAddr2);
+			memory[writeAddr2] <= writeData2;
+		end
+	end
+
+	initial
+	begin
+		$readmemh("loadMem.dat", memory);
+	end
+	integer i; 
+
+	//always@(memory[2])
+		//$display("mem 2	value = %b", memory[2]);
+	always@(hlt)
+	begin
+		if(hlt)
+		begin
+			for(i=0; i<90; i=i+1)
+				$display("mem %d	value = %d", i, memory[i]);
+		end
+	end
+	initial
+	begin
+		for(i=0; i<10; i=i+1)
+			$display("mem %d	value = %d", i, memory[i]);
+		#200 for(i=0; i<10; i=i+1)
+			$display("mem %d	value = %d", i, memory[i]);
+	end
+endmodule
+
+
